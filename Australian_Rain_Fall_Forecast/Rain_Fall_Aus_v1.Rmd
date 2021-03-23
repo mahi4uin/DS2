@@ -1,0 +1,228 @@
+---
+title: "Rain Fall in Australia - Distribution variables"
+author: "Mahesh Kotha"
+date: "3/10/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r libraries, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(gridExtra)
+library(GGally) # ggpairs() for scatterplot matrix
+library(RColorBrewer)
+```
+
+# Read the dataset
+
+```{r, include=TRUE}
+rain.df <- read.csv("Data/weatherAUS.csv",nrows = 8000)[ ,c("Location","MinTemp","MaxTemp","Rainfall", "Evaporation", "Sunshine","WindGustDir","WindGustSpeed", "WindDir9am"   
+,"WindDir3pm","WindSpeed9am","WindSpeed3pm","Humidity9am","Humidity3pm", "Pressure9am",  "Pressure3pm", "Cloud9am",  "Cloud3pm", "Temp9am","Temp3pm","RainToday","RainTomorrow" )]
+```
+
+
+```{r, include=TRUE}
+class(rain.df)
+```
+
+```{r, include=TRUE}
+names(rain.df)
+```
+
+```{r, include=TRUE}
+dim(rain.df)
+```
+
+```{r, include=TRUE}
+str(rain.df)
+```
+
+```{r, include=TRUE}
+summary(rain.df$Rainfall)
+```
+
+```{r, include=TRUE}
+summary(rain.df)
+```
+#Distributions of variables
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+## Max Temperature (MT)
+#mean
+mean(rain.df$MaxTemp,na.rm = TRUE)
+#standard deviation
+sd(rain.df$MaxTemp,na.rm = TRUE)
+
+## Sunshine (SS)
+#mean
+mean(rain.df$Sunshine,na.rm = TRUE)
+#standard deviation
+sd(rain.df$Sunshine,na.rm = TRUE)
+
+
+## Humidity 9AM (Humidity9am)
+model_h9am <- lm(rain.df$Humidity9am ~ rain.df$MaxTemp + rain.df$Sunshine , na.rm = TRUE)
+#mean
+coef(model_h9am)
+#standard deviation
+summary(model_h9am)$sigma
+
+## Humidity 3PM (Humidity3pm)
+model_h3pm <- lm(rain.df$Humidity3pm ~ rain.df$Sunshine , na.rm = TRUE)
+#mean
+coef(model_h3pm)
+#standard deviation
+summary(model_h3pm)$sigma
+
+## Rain Tomorrow (RainTomorrow)
+#rain_rel.df$RainTomorrow <- as.numeric(as.character(rain_rel.df$RainTomorrow))
+#str(rain_rel.df$RainTomorrow)
+#library(plyr)
+#rain.df[] <- lapply( rain.df, factor)
+#levels(rain.df)
+#rain.df$RainTomorrow <- revalue(rain.df$RainTomorrow, c("Yes"=1))
+#rain.df$RainTomorrow <- revalue(rain.df$RainTomorrow, c("No"=0))
+#rain.df$RainTomorrow <- revalue(rain.df$RainTomorrow, c("NA"=2))
+#str(rain.df$RainTomorrow)
+model_rt <- lm(rain.df$RainTomorrow ~ rain.df$Humidity9am + rain.df$Humidity3pm , na.rm = TRUE)
+#mean
+coef(model_rt)
+#standard deviation
+summary(model_rt)$sigma
+
+```
+
+
+
+
+
+# Histogram plots of variables
+
+
+```{r, warning=FALSE,  message=FALSE, echo=FALSE}
+summary(rain.df$MinTemp)
+ggplot(aes(x = MinTemp), data = rain.df) +
+  geom_histogram(color = "azure3", fill = "aquamarine4")
+```
+```{r, warning=FALSE,  message=FALSE, echo=FALSE}
+summary(rain.df$MaxTemp)
+ggplot(aes(x = MaxTemp), data = rain.df) +
+  geom_histogram(color = "azure3", fill = "aquamarine4")
+```
+```{r, warning=FALSE,  message=FALSE, echo=FALSE}
+summary(rain.df$Rainfall)
+ggplot(aes(x = Rainfall), data = rain.df) +
+  geom_histogram(color = "azure3", fill = "aquamarine4")
+```
+
+# Boxplots
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+rain.df$RainTomorrow = as.factor(rain.df$RainTomorrow)
+
+ggplot(aes(x = RainTomorrow, y = MinTemp), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = MaxTemp), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Rainfall), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Evaporation), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Sunshine), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = WindGustDir), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = WindGustSpeed), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Humidity9am), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Humidity3pm), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Cloud9am), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Cloud3pm), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Temp9am), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = Temp3pm), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+ggplot(aes(x = RainTomorrow, y = RainToday), data = rain.df) +
+  geom_boxplot(color="aquamarine4") +
+  geom_jitter(alpha = 0.1, color="firebrick")+
+  coord_cartesian(ylim=c(0, 35))
+
+```
+
+# Bivariate plots
+
+```{r, echo=FALSE, Bivariate_Plots, message=FALSE, warning=FALSE, fig.width=9, fig.height=7}
+rain_rel.df <- read.csv("Data/weatherAUS.csv",nrows = 5000)[ ,c("MinTemp","MaxTemp", "Evaporation", "Sunshine","Humidity9am","Humidity3pm", "Pressure9am",  "Pressure3pm", "Cloud9am",  "Cloud3pm", "Temp9am","Temp3pm","RainTomorrow" )]
+
+set.seed(200)
+ggpairs(rain_rel.df, title="Correlogram with ggpairs()", color="blue") +
+  theme(text = element_text(size = 8)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 7))
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggpairs(
+  rain_rel.df[, c("MinTemp","MaxTemp", "Evaporation", "Sunshine","Humidity9am","Humidity3pm","RainTomorrow")],
+  upper = list(continuous = "density", combo = "box_no_facet"),
+  lower = list(continuous = "points", combo = "dot_no_facet")
+)
+```
+
+

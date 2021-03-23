@@ -1,0 +1,758 @@
+---
+title: "Australia Rain Fall Prediction"
+author: "Mahesh Kotha"
+date: "3/10/2021"
+output: html_document
+---
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r libraries, include=TRUE}
+library("bnlearn")
+#library("ggdag")
+library("tidyverse")
+# library("visNetwork")
+library(lubridate)
+```
+# Application domain: Rain Forecast
+
+Rain Forecast depends on:
+
+- Maximum Temperature $MT$.
+
+- Sunshine $SS$.
+
+- Humidity at 9AM $H9AM$. Directly influenced by Maximum Temperature ($MT$) and Sunshine ($SS$).
+
+- Humidity at 3PM $H3PM$. Directly influenced by Sunshine ($SS$).
+
+- Rain in Tomorrow $RT$. Directly influenced by Humidity at 9AM ($H9AM$) and Humidity at 3PM $H3PM$.
+
+- Create the graphical model using the `model2network()` method.
+
+## Graphical model
+
+```{r, echo=TRUE}
+dag.bnlearn <- model2network("[MT][SS][H9AM|MT:SS][H3PM|SS][RT|H9AM:H3PM]")
+dag.bnlearn
+```
+## Graphical model Visualization
+```{r, echo=TRUE}
+#plot(dag.bnlearn)
+```
+
+## Distributions of variables
+
+- $\mathrm{MT} \sim N \left(24, \,\, 7^{2}\right)$
+
+- $\mathrm{SS} \sim N \left(9, \,\, 4^{2}\right)$
+
+- $\mathrm{H9AM} \mid \mathrm{MT}, \mathrm{SS} \sim N \left( 110 - 1.37 \cdot \mathrm{MT} - 2.13 \cdot \mathrm{SS}, \,\, 15^{2}\right)$
+
+- $\mathrm{H3PM} \mid \mathrm{SS} \sim N \left(73.47 - 4.42 \cdot \mathrm{SS}, \,\, 13.31^{2}\right)$
+
+- $\mathrm{RT} \mid \mathrm{H9AM}, \mathrm{H3PM} \sim N\left(-0.08 -0.0042\cdot  \mathrm{~H9AM} + 0.123 \cdot \mathrm{~H3PM}, \,\,  0.33^{2}\right)$
+
+&nbsp; &nbsp; &nbsp;
+
+## Exploring independencies using the `dsep` function of the `bnlearn` library
+
+
+```{r, echo=TRUE}
+nodes <- nodes(dag.bnlearn)
+  for (n1 in nodes) {
+    for (n2 in nodes) {
+      if (dsep(dag.bnlearn, n1, n2))
+        cat(n1, "and", n2, "are independent.\n")
+    }
+  }
+```
+
+- Independence is symmetric.
+
+```{r, echo=TRUE}
+dsep(dag.bnlearn, "MT", "MT")
+dsep(dag.bnlearn, "SS", "SS")
+dsep(dag.bnlearn, "H9AM", "H9AM")
+```
+
+- Find which pairs of variables are conditionally independent given $H9AM$
+
+```{r, echo=TRUE}
+nodes <- nodes(dag.bnlearn)
+for (n1 in nodes[nodes != "H9AM"]) {
+  for (n2 in nodes[nodes != "H9AM"]) {
+    if (n1 < n2) {
+      if (dsep(dag.bnlearn, n1, n2, "H9AM"))
+        cat(n1, "and", n2, "are independent given H9AM.\n")
+    }
+  }
+}
+```
+
+
+
+- Find which pairs of variables are conditionally independent given $H3PM$
+
+```{r, echo=TRUE}
+nodes <- nodes(dag.bnlearn)
+for (n1 in nodes[nodes != "H3PM"]) {
+  for (n2 in nodes[nodes != "H3PM"]) {
+    if (n1 < n2) {
+      if (dsep(dag.bnlearn, n1, n2, "H3PM"))
+        cat(n1, "and", n2, "are independent given H3PM.\n")
+    }
+  }
+}
+```
+
+- Is there a path from $MT$ to $RT$?
+
+```{r, echo=TRUE}
+bnlearn::path(dag.bnlearn, from = "MT", to = "RT")
+```
+
+- Is there a path from $SS$ to $RT$?
+
+```{r, echo=TRUE}
+bnlearn::path(dag.bnlearn, from = "SS", to = "RT")
+```
+# Specifying the joint probability distribution
+```{r, echo=TRUE}
+distMT <- list(coef = c("(Intercept)" = 24), sd = 7)
+distSS <- list(coef = c("(Intercept)" = 9), sd = 4)
+distH9AM <- list(coef = c("(Intercept)" = 110, MT = -1.37, SS = -2.13), sd = 15)
+distH3PM <- list(coef = c("(Intercept)" = 73.47, SS = -4.42), sd = 13.31)
+distRT <- list(coef = c("(Intercept)" = 0, H9AM = 0, H3PM = 0), sd = 0.33)
+dist.list = list(MT = distMT, SS = distSS, H9AM = distH9AM, H3PM = distH3PM, RT = distRT)
+```
+# Gaussian Bayesian networks (GBNs)
+
+- All variables are normally distributed.
+
+- Root nodes (i.e., nodes without any parent), are characterized by their marginal distributions.
+
+- The conditioning effect of the parent nodes is given by an additive linear term in the mean; variance is not affected -- each node has a variance that is specific to that node and does not depend on the values of the parents.
+
+- A node's local distribution expressed as a Gaussian linear model (an intercept and the node's parents as
+explanatory variables; no interaction terms).
+
+```{r, echo=TRUE}
+gbn.bnlearn <- custom.fit(dag.bnlearn, dist = dist.list)
+```
+
+
+```{r, echo=TRUE}
+gbn.bnlearn$SS
+```
+
+
+```{r, echo=TRUE}
+gbn.bnlearn$RT
+```
+## rbmn R package for GBNs
+
+- Convert the `gbn.bnlearn` (a `bn.fit` object) to `rbmn` native format.
+
+```{r, echo=TRUE}
+library(rbmn)
+gbn.rbmn <- bnfit2nbn(gbn.bnlearn)
+```
+```{r, echo=TRUE}
+gema.rbmn <- nbn2gema(gbn.rbmn)
+mn.rbmn <- gema2mn(gema.rbmn)
+print8mn(mn.rbmn)
+```
+
+
+- Assumption: The joint distribution of all nodes (i.e., the global distribution) is a **multivariate normal distribution**.
+
+\begin{equation}
+f(\mathrm{MT}, \mathrm{SS}, \mathrm{H9AM}, \mathrm{H3PM}, \mathrm{RT}) = f(\mathrm{MT}) \, f(\mathrm{SS})  \, f(\mathrm{H9AM} \mid \mathrm{MT}, \mathrm{SS}) \,  f(\mathrm{H3PM} \mid \mathrm{SS}) \, f(\mathrm{RT} \mid \mathrm{H9AM}, \mathrm{H3PM})
+\end{equation}
+
+- Numeric derivation of the parameters of the **multivariate normal distribution**. 
+
+```{r, echo=TRUE}
+gema.rbmn <- nbn2gema(gbn.rbmn)
+mn.rbmn <- gema2mn(gema.rbmn)
+print8mn(mn.rbmn)
+```
+- Structure of the `mn.rbmn` object
+
+```{r, echo=TRUE}
+str(mn.rbmn)
+```
+
+
+
+
+
+# Read the dataset
+
+```{r, include=TRUE}
+rain.df <- read.csv("Data/weatherAUS.csv",nrows = 8000)[ ,c("MaxTemp", "Sunshine","Humidity9am","Humidity3pm", "RainTomorrow" )]
+
+```
+
+# Training Data and Test Data split
+```{r, echo=TRUE}
+dt = sort(sample(nrow(rain.df), nrow(rain.df)*.8))
+train<-rain.df[dt,]
+test<-rain.df[-dt,]
+```
+
+
+```{r, echo=TRUE}
+dim(train)
+str(train)
+```
+```{r, echo=TRUE}
+library(GGally)
+## Max Temperature (MT)
+#mean
+mean(train$MaxTemp,na.rm = TRUE)
+#standard deviation
+sd(train$MaxTemp,na.rm = TRUE)
+
+## Sunshine (SS)
+#mean
+mean(train$Sunshine,na.rm = TRUE)
+#standard deviation
+sd(train$Sunshine,na.rm = TRUE)
+
+
+## Humidity 9AM (Humidity9am)
+model_h9am <- lm(train$Humidity9am ~ train$MaxTemp + train$Sunshine , na.rm = TRUE)
+#mean
+coef(model_h9am)
+#standard deviation
+summary(model_h9am)$sigma
+
+## Humidity 3PM (Humidity3pm)
+model_h3pm <- lm(train$Humidity3pm ~ train$Sunshine , na.rm = TRUE)
+#mean
+coef(model_h3pm)
+#standard deviation
+summary(model_h3pm)$sigma
+
+## Rain Tomorrow (RT)
+model_rt <- lm(train$RainTomorrow ~ train$Humidity9am + train$Humidity3pm , na.rm = TRUE)
+#mean
+coef(model_rt)
+#standard deviation
+summary(model_rt)$sigma
+
+```
+- For continuous data, `bn.fit` implements only **mle**  estimator.
+
+
+```{r, echo=TRUE}
+str(train)
+
+train$Sunshine <- as.numeric(train$Sunshine, na.rm = TRUE)
+train$Humidity9am <- as.numeric(train$Humidity9am, na.rm = TRUE)
+train$Humidity3pm <- as.numeric(train$Humidity3pm, na.rm = TRUE)
+train$RainTomorrow <- as.numeric(train$RainTomorrow, na.rm = TRUE)
+#train[] <- lapply( train, factor)
+str(train)
+
+names(train)
+names(train)[names(train) == "MaxTemp"] <- "MT"
+names(train)[names(train) == "Sunshine"] <- "SS"
+names(train)[names(train) == "Humidity9am"] <- "H9AM"
+names(train)[names(train) == "Humidity3pm"] <- "H3PM"
+names(train)[names(train) == "RainTomorrow"] <- "RT"
+
+```
+# Estimating the model parameters: Correlation coefficients
+
+- We assume that the structure of the GBN is known.
+
+- 200 observations are generated from the GBN and saved in a data frame (cropdata1).
+
+
+```{r, echo=TRUE}
+set.seed(4567)
+raindata1 <- rbn(gbn.bnlearn, n = 200)
+set.seed(1234)
+raindata2 <- rbn(gbn.bnlearn, n = 20000)
+str(raindata2)
+```
+```{r, echo=TRUE}
+est.para <- bn.fit(dag.bnlearn, method = "mle", data = raindata1,na.rm = TRUE)
+```
+```{r, echo=TRUE}
+est.para$RT <- lm(RT ~ H9AM + H3PM, data = raindata1, na.rm = TRUE)
+est.para$H9AM <- lm(H9AM ~ MT + SS, data = raindata1, na.rm = TRUE)
+
+```
+- Ridge regression for the random variable $RT$
+
+```{r, echo=TRUE}
+library(penalized)
+est.para$RT <- penalized(RT ~ H9AM + H3PM, lambda1 = 0, lambda2 = 1.5, data = raindata1)
+```
+```{r, echo=TRUE}
+est.para$RT
+```
+```{r, echo=TRUE}
+est.para$RT <- lm(RT ~ H9AM + H3PM - 1, data = raindata1)
+est.para$RT
+```
+- Parameter estimates are based only on the subset of the original data frame spanning the considered node and its parents.
+
+```{r, echo=TRUE}
+lmRT <- lm(RT ~ H9AM + H3PM, data = raindata1[, c("H9AM", "H3PM", "RT")])
+coef(lmRT)
+```
+```{r, echo=TRUE}
+confint(lmRT)
+```
+```{r, echo=TRUE}
+cormat <- cor(raindata1[, c("RT", "H3PM", "H9AM")])
+cormat
+```
+```{r, echo=TRUE}
+library(corpcor)
+invcor <- cor2pcor(cormat)
+dimnames(invcor) <- dimnames(cormat)
+invcor
+```
+## Structure learning
+
+
+
+```{r, echo=TRUE}
+stru1 <- iamb(raindata1, test = "cor")
+stru1
+```
+```{r, echo=TRUE}
+library(DiagrammeR)
+DiagrammeR::mermaid("
+  graph TB
+  mt((MT)) --> h9am((H9AM))
+  ss((SS)) --> h9am((H9AM))
+  ss((SS)) --> h3pm((H3PM))
+  h9am((H9AM)) --> rt((RT))
+  h3pm((H3PM)) --> rt((RT))
+")
+```
+## Network scores
+- Bayesian Gaussian equivalent score (BGe) -- posterior probability score in common use is an uniform prior over the space of DAGs and of the parameters.
+
+
+```{r, echo=TRUE}
+# applied to all nodes, each node in a separate panel
+gbn.fit <- bn.fit(dag.bnlearn, raindata2)
+bn.fit.qqplot(gbn.fit)
+```
+
+
+```{r, echo=TRUE}
+score(dag.bnlearn, data = raindata2, type = "bic-g")
+```
+
+```{r, echo=TRUE}
+score(dag.bnlearn, data = raindata2, type = "bge")
+```
+```{r, echo=TRUE}
+print8nbn(gbn.rbmn)
+```
+
+
+```{r, echo=TRUE}
+print8gema(gema.rbmn)
+```
+
+/*-------------------------------------------------------------------------------------------------------------------*/
+
+
+- `condi4joint()` in rbmn is used to obtain the conditional joint distribution of one or more nodes when the values of the others are fixed.
+
+-For example, compute the distribution of RT when SS is fixed to 80 
+
+```{r, echo=TRUE}
+print8mn(condi4joint(mn.rbmn, par = "RT", pour = "SS", x2 = 80))
+```
+
+- Compute the distribution of of SS when RT is fixed to 80.
+
+```{r, echo=TRUE}
+print8mn(condi4joint(mn.rbmn, par = "SS", pour = "RT", x2 = 80))
+```
+
+- Use `condi4joint()` to obtain the conditional distribution of C given an arbitrary value of V simply not fixing V.
+
+```{r, echo=TRUE}
+unlist(condi4joint(mn.rbmn, par = "RT", pour = "SS", x2 = NULL))
+```
+
+Read the above result as $\mathrm{C} \mid \mathrm{V} \sim N(24+0.52 \mathrm{~V}, 72.9625)$
+
+
+## Approximate inference
+
+- We use either direct or constrained simulation.
+
+- `rbn()` for direct simulation; `cpquery()` and `cpdist()` for both direct and constrained simulation.
+
+- Sample one node at a time, follow the order implied by the edges of the DAG and ensure that parent nodes are sampled before their children nodes.
+
+- The above global simulation can be used for a pair of nodes, such as (SS, H9AM), as well as for any other subset of nodes.
+
+- We generate 4 observations from (SS, H9AM), using the Rain Predict GBN.
+
+
+```{r, echo=TRUE}
+nbs <- 4
+VG <- rnorm(nbs, mean = 50, sd = 10)
+VE <- rnorm(nbs, mean = 50, sd = 10)
+VV <- rnorm(nbs, mean = -10.355 + 0.5 * VG + 0.707 * VE, sd = 5)
+VN <- rnorm(nbs, mean = 45 + 0.1 * VV, sd = 9.95)
+cbind(VV, VN)
+```
+For GBNs, a quicker and easier way is to use bnlearn
+
+```{r, echo=TRUE}
+sim <- rbn(gbn.bnlearn, n = 4)
+sim[, c("SS", "H9AM")]
+```
+
+
+```{r, echo=TRUE}
+set.seed(4567)
+raindata1 <- rbn(gbn.bnlearn, n = 200)
+set.seed(1234)
+raindata2 <- rbn(gbn.bnlearn, n = 20000)
+str(raindata2)
+```
+
+- Imposing restrictions on simulation is a common practice.
+
+
+- How do we obtain the distribution of a pair of variables conditioned on another variable? For example, $H9AM, H3PM \mid SS = 40$. This can be done using GBN.
+
+- What are the values of H9AM and H3PM associated with a good rain fall next day? That is, $\mathrm{N}, \mathrm{W} \mid \mathrm{RT} > 80$
+
+- A naive but correct approach is: make a simulation with a high number of draws, and retain only those satisfying the condition (i.e., $\mathrm{RT} > 80)$.
+
+- This approach is not feasible when the probability of generating observations satisfying the condition is very small.
+
+- However, we will try with `cpquery()` and `cpdist()`.
+
+```{r, echo=TRUE}
+head(cpdist(gbn.bnlearn, nodes = c("RT", "H9AM", "H3PM"), evidence = (RT > 80)))
+```
+
+- In the case of continuous variables, only intervals will have probability. This forces us to discard all the generated samples.
+
+- More advanced simulation approaches are needed -- **likelihood weighting** (lw) is one such simple approach.
+
+- lw is accessed from `cpdist()` by setting the method to "lw."
+
+```{r, echo=TRUE}
+head(cpdist(gbn.bnlearn, nodes = c("H9AM"), evidence = list(MT = 10, SS = 90), method = "lw"))
+```
+
+- We compute the probability of a specific event using the **likelihood weighting** via the `cpquery()`.
+
+```{r, echo=TRUE}
+cpquery(gbn.bnlearn, event = (H9AM > 70), evidence = list(MT = 10, SS = 90), method = "lw")
+```
+- This probability is very low given that we have a bad genotype.
+
+# Plotting GBNs 
+
+- Previously we used `Rgraphviz` and `bnlearn` for graphical display of BNs.
+
+- Now, we will use another R package - `igraph`
+
+- The notation E-+V denotes that there is an edge going from node E to node V.
+
+```{r, echo=TRUE}
+library(igraph)
+igraph.options(print.full = TRUE)
+# define vertices and edges
+dag0.igraph <- graph.formula(MT-+H9AM, SS-+H9AM, SS-+H3PM, H9AM-+RT, H3PM-+RT)
+dag0.igraph
+```
+
+For convenience, convert a **bn** or **bn.fit** object into an **igraph** graph object.
+
+```{r, echo=TRUE}
+#dag.igraph <- igraph.from.graphNEL(as.graphNEL(dag.bnlearn))
+```
+
+
+```{r, echo=TRUE}
+# print nodes
+#V(dag.igraph)
+
+# print edges
+#E(dag.igraph)
+```
+
+```{r, echo=TRUE}
+# par(mfrow = c(2, 2), mar = rep(3, 4), cex.main = 2)
+# plot(dag.igraph, main = "\n1: defaults")
+# 
+# dag2 <- dag.igraph
+# V(dag2)$label <- V(dag2)$name
+# plot(dag2, main = "\n2: with labels")
+# 
+# ly <- matrix(c(2, 3, 1, 1, 2, 3,
+#                1, 4, 4, 2, 3, 2), 6)
+# plot(dag2, layout = ly, main = "\n3: positioning")
+# 
+# colo <- c("black", "darkgrey", "darkgrey", rep(NA, 3))
+# lcolo <- c(rep("white", 3), rep(NA, 3))
+# par(mar = rep(0, 4), lwd = 1.5)
+# plot(dag2, layout = ly, frame = TRUE,
+#      main = "\n4: final",
+#      vertex.color = colo, vertex.label.color = lcolo,
+#      vertex.label.cex = 3, vertex.size = 50,
+#      edge.arrow.size = 0.8, edge.color = "black")
+```
+
+
+## Plotting conditional probability distributions
+
+- Recall that we used `bn.fit.barchart()` of `bnlearn` package for discrete BNs; however, no such function for GBNs.
+
+- The parents of a node in a GBN are defined over $\mathbb{R}$ and the corresponding local distribution is difficult to plot. However, common diagnostic plots for linear regression models are available (they are based on the **lattice** graphics, and apply to **bn.fit** object).
+
+  - **bn.fit.qqplot**: a quantile-quantile plot of the residuals.
+
+  - **bn.fit.histogram**: a histogram of the residuals, with theoretical normal density superimposed.
+
+  - **bn.fit.xyplot**: residuals against the fitted values.
+
+
+```{r, echo=TRUE}
+# applied to all nodes, each node in a separate panel
+gbn.fit <- bn.fit(dag.bnlearn, raindata2)
+bn.fit.qqplot(gbn.fit)
+```
+
+```{r, echo=TRUE}
+# applied to a single node
+bn.fit.qqplot(gbn.fit$SS)
+```
+
+- The above plots require the *residuals* and the *fitted values* to be stored in the bn.fit object; GBNs created with **custom.fit()** produce an error unless both quantities have been provided by the user.
+
+
+```{r, echo=TRUE}
+try(bn.fit.qqplot(gbn.bnlearn))
+```
+
+- We want to explore how $\mathrm{C}$ changes in response to variations in $\mathrm{E}$ and $\mathrm{V}$ -- $\mathrm{C} \vert \mathrm{E}, \mathrm{V}$.
+
+```{r, echo=TRUE}
+# closed form solution
+RT.MTH9AM <- condi4joint(mn.rbmn, par = "RT", pour = c("MT", "H9AM"), x2 = NULL)
+RT.MTH9AM$rho
+```
+
+- No additional information is added by E once V is already known -- V **d-separates** E and C.
+
+```{r, echo=TRUE}
+dsep(gbn.bnlearn, "MT", "RT", "H9AM")
+```
+- Produce a plot providing insight on the distribution of C when both E and V vary.
+
+- We will replace the third dimension with the size of the points representing each simulated observation.
+
+
+```{r, echo=TRUE}
+set.seed(5678)
+raindata3 <- cpdist(gbn.bnlearn, nodes = c("MT", "RT", "H9AM"), evidence = TRUE, n = 1000)
+plot(raindata3$H9AM, raindata3$RT, type = "n", main = "RT | H9AM, SS; SS is the point size")
+cexlim <- c(0.1, 2.4)
+cexE <- cexlim[1] + diff(cexlim) / diff(range(raindata3$SS)) * (raindata3$SS - min(raindata3$SS))
+points(raindata3$V, raindata3$C, cex = cexE)
+cqa <- quantile(raindata3$C, seq(0, 1, 0.1))
+abline(h = cqa, lty = 3)
+```
+
+- Strong relationship between V and C; no additional effect from E to V: for any given level of C, the variation of both variables is about the same.
+
+- Changing their roles highlights the additional effect of V with respect to E.
+
+```{r, echo=TRUE}
+set.seed(1234)
+raindata3 <- cpdist(gbn.bnlearn, nodes = c("MT", "RT", "H9AM"), evidence = TRUE, n = 1000)
+plot(raindata3$H9AM, raindata3$RT, type = "n", main = "RT | H9AM, SS; H9AM is the point size")
+cexlim <- c(0.1, 2.4)
+cexV <- cexlim[1] + diff(cexlim) / diff(range(raindata3$H9AM)) * (raindata3$H9AM - min(raindata3$H9AM))
+points(raindata3$E, raindata3$C, cex = cexV)
+cqa <- quantile(raindata3$C, seq(0, 1, 0.1))
+abline(h = cqa, lty = 3)
+```
+
+
+
+# Recovering model parameters using the sampled data
+
+Compare the recovered model parameters with the corresponding model parameters specified by the domain experts.
+
+```{r, echo=TRUE}
+dim(raindata2)
+round(head(raindata2), 2)
+```
+## Mean and variance of the r.v. E (Environmental Potential)
+
+```{r, echo=TRUE}
+mean(raindata2$MT, na.rm = TRUE)
+var(raindata2$MT,na.rm = TRUE)
+```
+
+## Mean and variance of the r.v. SS ( SUnshine)
+
+```{r, echo=TRUE}
+mean(raindata2$SS, na.rm = TRUE)
+var(raindata2$SS, na.rm = TRUE)
+```
+## Mean and variance of the r.v. H9AM (Humidity at 9AM)
+
+- We estimate the the conditional distribution $H9AM \mid SS, MT$ using a linear regression.
+
+$$RT = \beta_0 + \beta_1 \cdot MT + \beta_2 \cdot SS$$
+
+
+```{r, echo=TRUE}
+MTSS.H9AM.regression <- lm(raindata2$H9AM ~ raindata2$SS + raindata2$MT, data=raindata2)
+coef(MTSS.H9AM.regression)
+```
+Compare the values (-2.11, -1.38) with the actual values (50, 100).
+
+
+Compute the sd/variance for the slope:
+
+```{r, echo=TRUE}
+summary(MTSS.H9AM.regression)$sigma
+```
+Compare $(15)$ with $(5^2)$.
+
+## Mean and variance of the r.v. H9AM (Humidity at 9AM)
+
+- We estimate the the conditional distribution $N \mid V$ using a linear regression.
+
+$$N = \beta_0 + \beta_1 \cdot V$$
+
+```{r, echo=TRUE}
+SS.H9AM.regression <- lm(raindata2$H9AM ~ raindata2$SS +raindata2$MT  , data=raindata2)
+coef(SS.H9AM.regression)
+```
+
+Compare the value (-2.11) with the actual value (0.01).
+
+
+Compute the sd/variance for the slope:
+
+```{r, echo=TRUE}
+summary(SS.H9AM.regression)$sigma
+```
+
+Compare $(15^2)$ with the actual value $9.949874^2$.
+
+
+## Mean and variance of the r.v. H3PM (Hudimity at 3PM)
+
+- We estimate the the conditional distribution $W \mid V$ using a linear regression.
+
+$$H3PM = \beta_0 + \beta_1 \cdot SS$$
+
+```{r, echo=TRUE}
+SS.H3PM.regression <- lm(raindata2$H3PM ~ raindata2$SS, data=raindata2)
+coef(SS.H3PM.regression)
+```
+
+Compare the value (-4.44) with the actual value (0.7).
+
+
+Compute the sd/variance for the slope:
+
+```{r, echo=TRUE}
+summary(SS.H3PM.regression)$sigma
+```
+
+Compare $(13.3^2)$ with the actual value $(7.141428^2)$.
+
+## Mean and variance of the r.v. RT (Rainfall prediction)
+
+- We estimate the the conditional distribution $L \mid H9AM, H3PM$ using a linear regression.
+
+$$RT = \beta_0 + \beta_1 \cdot N + \beta_2 \cdot H3PM$$
+
+```{r, echo=TRUE}
+H9AM.H3PM.RT.regression <- lm(raindata2$RT ~ raindata2$H3PM + raindata2$H9AM, data=raindata2)
+coef(H9AM.H3PM.RT.regression)
+```
+
+Compare the values (-.376, 0.783) with the actual values (0.3, 0.7).
+
+
+Compute the sd/variance for the slope:
+
+```{r, echo=TRUE}
+summary(H9AM.H3PM.RT.regression)$sigma
+```
+
+Compare $(3.29^2)$ with the actual value $(6.25^2)$.
+
+
+ 
+
+
+
+
+1. Did you state your project goal? That is, what question(s) will this project address?
+
+This project goal is to forecast the Rain in Australia based on the weather conditions. Based on the temparatures and Humidity, we can predict next day rain.
+
+
+2. Did you describe the dataset? What is the motivation for selecting the dataset you have chosen? List the size of your dataset and the total number of variables. Which are predictive variables and which is the target variable?
+
+Dataset has 15000 rows with 5 variables. Maximum Temperature, Sunshine, Humidity at 9AM,Humidity at 3PM, and Rain tomorrow is target.
+
+
+3. What did you learn about the dataset through exploratory data analysis? Which variables are highly correlated?
+
+I understood how each factor will influence the rain prediction. Humidity and rain are highly corelated.
+
+4. What domain knowledge guided you to build the initial model?
+
+General information about weather conditions as i follow them everyday.
+
+5. Did you use the data to learn the model parameters?
+
+Yes
+     
+6. Did you use the data for structure learning? How did you assess the quality of the learned structure of the Bayesian network?
+
+By running the test cases and calculating the scores.
+
+7. How does the learned structure of the model compares with the original model?
+
+The results from the Learned structure are predictin the rain forecast close to the original one.
+
+8. Did you illustrate answering queries (i.e., exact and approximate inference) using the model?
+
+yes.
+
+9. Did you interpret the answers to the queries?
+
+I was able to understand the results and correlate them to the actual data.
+
+10. Did you reflect on the project? Did the project answer your original question(s), which motivated the project?
+
+Its very helpful to work on the real world project as it gave insights into how the prediction and modelling works.
+
+This project greatly helped me to absorb the key concepts from the class room learning to the real world. Also it helps my understanding about  further projects i work in future.
+
+
